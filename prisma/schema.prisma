@@ -1,0 +1,100 @@
+// Prisma schema for the Hyperliquid trader reputation MVP.
+// The read/compute path (profile pages, NFT metadata) does not require a DB;
+// these models back the optional persistence endpoints.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  wallets          Wallet[]
+  tradeSnapshots   TradeSnapshot[]
+  achievements     UserAchievement[]
+  reputationScores ReputationScore[]
+}
+
+model Wallet {
+  id        String   @id @default(cuid())
+  address   String   @unique
+  chain     String   @default("hyperliquid")
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Point-in-time snapshot of aggregated trader stats. We keep the raw payload
+/// so scores/achievements can be recomputed if the engine changes.
+model TradeSnapshot {
+  id               String   @id @default(cuid())
+  address          String
+  totalVolume      Float    @default(0)
+  realizedPnl      Float    @default(0)
+  winRate          Float    @default(0)
+  tradeCount       Int      @default(0)
+  liquidationCount Int      @default(0)
+  fundingPaid      Float    @default(0)
+  maxDrawdown      Float    @default(0)
+  longestHoldMs    Float    @default(0)
+  raw              Json?
+  createdAt        DateTime @default(now())
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([address])
+  @@index([userId])
+}
+
+/// Catalog of badges. `id` matches the slug in src/lib/achievements/definitions.ts.
+model Achievement {
+  id          String   @id
+  name        String
+  description String
+  imageUrl    String?
+  rarity      String   @default("common")
+  createdAt   DateTime @default(now())
+
+  userAchievements UserAchievement[]
+}
+
+model UserAchievement {
+  id       String   @id @default(cuid())
+  earnedAt DateTime @default(now())
+  context  Json?
+
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+}
+
+model ReputationScore {
+  id        String   @id @default(cuid())
+  address   String
+  score     Int
+  tier      String
+  breakdown Json
+  createdAt DateTime @default(now())
+
+  userId String?
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([address])
+  @@index([userId])
+}
