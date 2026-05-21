@@ -1,0 +1,6 @@
+.vercel-token
+.env
+.env*.local
+.git
+node_modules
+.next
