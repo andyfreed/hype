@@ -26,12 +26,12 @@ export interface Fill {
   oid: number;
   crossed: boolean;
   /**
-   * Whether this fill was part of a liquidation.
-   * TODO(hyperliquid): Confirm how liquidations are surfaced. They may appear
-   * as a dedicated `liquidation` object on the fill, via the `dir` field, or
-   * through a separate endpoint.
+   * Present only when this fill resulted from a liquidation. The live API
+   * returns an object (liquidated user / mark price / method); the mock adapter
+   * uses a boolean. Either way a truthy value flags a liquidation, which is all
+   * the stats engine checks.
    */
-  liquidation?: boolean;
+  liquidation?: boolean | { liquidatedUser?: string; markPx?: string; method?: string };
 }
 
 /** A single open position within the clearinghouse state. */
@@ -58,14 +58,33 @@ export interface AccountState {
   time: number;
 }
 
-/** A single funding payment/receipt. Matches the `userFunding` info request. */
+/**
+ * Normalized funding payment/receipt used by the stats engine.
+ * `usdc`: negative = funding paid by the trader, positive = funding received.
+ */
 export interface FundingEntry {
   /** Epoch milliseconds. */
   time: number;
   coin: string;
-  /** USDC delta. Negative = funding paid, positive = funding received. */
   usdc: string;
   fundingRate: string;
+}
+
+/**
+ * Raw `userFunding` entry as returned by the live API. The interesting fields
+ * are nested under `delta`; `getUserFunding` flattens this into FundingEntry.
+ */
+export interface RawFundingEntry {
+  time: number;
+  hash: string;
+  delta: {
+    type: string;
+    coin: string;
+    usdc: string;
+    szi: string;
+    fundingRate: string;
+    nSamples?: number;
+  };
 }
 
 /** Everything we pull for a single trader in one shot. */

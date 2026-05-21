@@ -3,6 +3,7 @@ import type {
   AccountState,
   Fill,
   FundingEntry,
+  RawFundingEntry,
   TraderRawData,
 } from "./types";
 
@@ -47,43 +48,53 @@ export class HyperliquidClient {
     return (await res.json()) as T;
   }
 
-  /** Recent fills for an address. */
+  /**
+   * Recent fills for an address. The live `userFills` request maps directly to
+   * Fill[] and returns the most recent ~2000 fills; for accounts that exceed
+   * that, switch to `userFillsByTime` with pagination for full history.
+   */
   async getUserFills(address: string): Promise<Fill[]> {
     if (this.useMock) return generateMockData(address).fills;
-    // TODO(hyperliquid): Confirm response maps directly to Fill[]. `userFills`
-    // returns the most recent fills; use `userFillsByTime` for full history.
-    return this.info<Fill[]>({ type: "userFills", user: address });
+    const fills = await this.info<Fill[]>({ type: "userFills", user: address });
+    return Array.isArray(fills) ? fills : [];
   }
 
   /** Current clearinghouse (account) state, including open positions. */
   async getAccountState(address: string): Promise<AccountState> {
     if (this.useMock) return generateMockData(address).accountState;
-    // TODO(hyperliquid): Confirm `clearinghouseState` field names match AccountState.
+    // `clearinghouseState` field names match AccountState; we only read
+    // marginSummary.accountValue and the length of assetPositions.
     return this.info<AccountState>({ type: "clearinghouseState", user: address });
   }
 
-  /** Funding payments/receipts for an address. */
+  /** Funding payments/receipts for an address, normalized to FundingEntry[]. */
   async getUserFunding(
     address: string,
     startTime = 0,
   ): Promise<FundingEntry[]> {
     if (this.useMock) return generateMockData(address).funding;
-    // TODO(hyperliquid): The real `userFunding` response nests data under a
-    // `delta` object: { time, hash, delta: { type, coin, usdc, fundingRate } }.
-    // Normalize it to FundingEntry[] here once confirmed against the live API.
-    return this.info<FundingEntry[]>({
+    // The live `userFunding` response nests the numbers under a `delta` object:
+    // { time, hash, delta: { type, coin, usdc, szi, fundingRate } }. Flatten it
+    // to FundingEntry so the stats engine can read `usdc` directly.
+    const raw = await this.info<RawFundingEntry[]>({
       type: "userFunding",
       user: address,
       startTime,
     });
+    return (Array.isArray(raw) ? raw : [])
+      .filter((e) => e?.delta?.type === "funding")
+      .map((e) => ({
+        time: e.time,
+        coin: e.delta.coin,
+        usdc: e.delta.usdc,
+        fundingRate: e.delta.fundingRate,
+      }));
   }
 
   /**
-   * Liquidation history.
-   * TODO(hyperliquid): There is no confirmed dedicated "liquidations" info
-   * request. Liquidations may need to be derived from fills (see the
-   * `liquidation` flag on Fill) or a separate data source. For now we surface
-   * them via fills in `getTraderRawData`.
+   * Liquidation history, derived from fills. Hyperliquid has no dedicated
+   * liquidations info request; liquidation fills carry a truthy `liquidation`
+   * field, so we filter on that.
    */
   async getLiquidations(address: string): Promise<Fill[]> {
     const fills = await this.getUserFills(address);
